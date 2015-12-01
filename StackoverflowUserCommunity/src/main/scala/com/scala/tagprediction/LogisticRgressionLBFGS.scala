@@ -37,22 +37,22 @@ object LogisticRgressionLBFGS {
 		val tagsXml = tagsFile.map(_.trim).filter(!_.startsWith("﻿<?xml version=")).filter(_ != "<tags>").filter(_ != "</tags>")
 
 		val postsRDD = postsXml.map { s =>
-      		val xml = XML.loadString(s)
-      		val id = (xml \ "@Id").text
-      		val postidtype = (xml \ "@PostTypeId").text
-      		val tags = (xml \ "@Tags").text
-      		val title = (xml \ "@Title").text
-      		val body = (xml \ "@Body").text
-      		val bodyPlain = ("<\\S+>".r).replaceAllIn(body, " ")
-      		val text = (title + " " + bodyPlain).replaceAll("\n", " ").replaceAll("( )+", " ").replaceAll("\\W", " ");
-      		    Row(id, postidtype,tags, text)
+    		val xml = XML.loadString(s)
+    		val id = (xml \ "@Id").text
+    		val postidtype = (xml \ "@PostTypeId").text
+    		val tags = (xml \ "@Tags").text
+    		val title = (xml \ "@Title").text
+    		val body = (xml \ "@Body").text
+    		val bodyPlain = ("<\\S+>".r).replaceAllIn(body, " ")
+    		val text = (title + " " + bodyPlain).replaceAll("\n", " ").replaceAll("( )+", " ").replaceAll("\\W", " ");
+    		Row(id, postidtype,tags, text)
 		}
 		val tagsRDD = tagsXml.map { s =>
-      		val xml = XML.loadString(s)
-      		val id = (xml \ "@Id").text
-      		val tags = (xml \ "@TagName")    
-      		val count = (xml \ "@Count")
-      	  Row(id, tags, count)
+    		val xml = XML.loadString(s)
+    		val id = (xml \ "@Id").text
+    		val tags = (xml \ "@TagName")    
+    		val count = (xml \ "@Count")
+    		Row(id, tags, count)
 		}
 
 		val taglist  = tagsRDD.map { x => x(1).toString()}.collect()
@@ -64,19 +64,19 @@ object LogisticRgressionLBFGS {
 		val questionsRDD = sqlContext.sql("SELECT * from postsDf where PostTypeId=1")
 
 		for(i <- taglist){
-    			val targetTag = i
-    			val myudf: (String => Double) = (str: String) => {if (str.contains(targetTag)) 1.0 else 0.0}
-    			val sqlfunc = udf(myudf)
-    			val postsLabeled = questionsRDD.withColumn("Label", sqlfunc(col("Tags")))
-    			val postsLabeledtokenized = tokenize(postsLabeled, "Text", "Words")
-    			val postsLabeledtokenizedAndStopWordRemoved = removeStopWords(postsLabeledtokenized, "Words", "clenaedText", stopwordList)
-    			val postLabeledVectorized = createVector(postsLabeledtokenizedAndStopWordRemoved, "clenaedText", "Features", numFeatures)
-    			val  traning = postLabeledVectorized.rdd.map { 
-    			      row => LabeledPoint(row.getDouble(4), row(7).asInstanceOf[org.apache.spark.mllib.linalg.Vector])
-    			}
-    			val model = new LogisticRegressionWithLBFGS().setNumClasses(2).run(traning)
-    			//  Compute raw scores on the test set.
-    			model.save(sc, "/home/neel/lrmodels/" + i)
+			        val targetTag = i
+		          val myudf: (String => Double) = (str: String) => {if (str.contains(targetTag)) 1.0 else 0.0}
+		        	val sqlfunc = udf(myudf)
+							val postsLabeled = questionsRDD.withColumn("Label", sqlfunc(col("Tags")))
+							val postsLabeledtokenized = tokenize(postsLabeled, "Text", "Words")
+							val postsLabeledtokenizedAndStopWordRemoved = removeStopWords(postsLabeledtokenized, "Words", "clenaedText", stopwordList)
+							val postLabeledVectorized = createVector(postsLabeledtokenizedAndStopWordRemoved, "clenaedText", "Features", numFeatures)
+							val  traning = postLabeledVectorized.rdd.map { 
+						        row => LabeledPoint(row.getDouble(4), row(7).asInstanceOf[org.apache.spark.mllib.linalg.Vector])
+					    }
+					    val model = new LogisticRegressionWithLBFGS().setNumClasses(2).run(traning)
+							//  Compute raw scores on the test set.
+							model.save(sc, "/home/neel/lrmodels/" + i)
 
 		}
 	}
