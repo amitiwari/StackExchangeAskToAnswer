@@ -87,7 +87,7 @@ object LogisticRgressionLBFGS {
 	  	      row => LabeledPoint(row.getDouble(4), row(7).asInstanceOf[org.apache.spark.mllib.linalg.Vector])}
 	  	  
 	  	  val model = new LogisticRegressionWithLBFGS().setNumClasses(2).run(traning)
-	  	  // Compute raw scores on the test set.
+	  	  //  Compute raw scores on the test set.
         model.save(sc, "/home/neel/lrmodels/" + i)
 
 	 }
