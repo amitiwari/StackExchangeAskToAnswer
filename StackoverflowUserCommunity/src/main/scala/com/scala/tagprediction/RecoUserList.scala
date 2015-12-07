@@ -1,6 +1,7 @@
 package com.scala.tagprediction
 
 import scala.xml._
+
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql._
 import org.apache.spark.sql.types._
@@ -23,15 +24,15 @@ import collection.mutable.HashMap
 import collection.mutable._
 import org.apache.spark.Accumulator
 
-
-object LogisticRegressionTest {
- 	def main(args:Array[String]) = {
- 	  val conf = new SparkConf().setAppName("LG").setMaster("local");
+object RecoUserList {
+  def main(args:Array[String]) = {
+ 	
+	  val conf = new SparkConf().setAppName("LG").setMaster("local");
 		val sc= new SparkContext(conf)		
 		Logger.getLogger("org").setLevel(Level.OFF)
 		Logger.getLogger("akka").setLevel(Level.OFF)
-    val modelDirectory = "/home/neel/lrmodels"
-    val testfileName = "/home/neel/datascience.stackexchange.com/Posts.xml"
+    val modelDirectory = "/home/neel/lrmodels_bckup"
+    val testfileName = "/home/neel/datascience.stackexchange.com/Test.xml"
     val textFile = sc.textFile(testfileName)
     val stopwordList = fromFile("/home/neel/twitter/en.txt").getLines.toArray
     val postsXml = textFile.map(_.trim).filter(!_.startsWith("<?xml version=")).filter(_ != "<posts>").filter(_ != "</posts>")
@@ -61,7 +62,7 @@ object LogisticRegressionTest {
 		val postsDf = sqlContext.createDataFrame(postsRDD, postSchema).registerTempTable("postsDf")
 		val questionsRDD = sqlContext.sql("SELECT * from postsDf where PostTypeId=1")
     
-		
+
 		for( i <- new java.io.File(modelDirectory).listFiles){
       val myudf: (String => Double) = (str: String) => {if (str.contains(i.getName)) 1.0 else 0.0}
   	  val sqlfunc = udf(myudf)
@@ -73,21 +74,39 @@ object LogisticRegressionTest {
   	  	      row => LabeledPoint(row.getDouble(4), row(7).asInstanceOf[org.apache.spark.mllib.linalg.Vector])}
 		  
       val model = LogisticRegressionModel.load(sc, i.toString())
-    
       val predictionAndLabels = test.map { case LabeledPoint(label, features) =>
             val prediction = model.predict(features)
             if(prediction==1.0){
               result++=i.getName()
             }
             (prediction, label)
-      }
-     
+      }   
       val temp_r = predictionAndLabels.collect();
       for(j <- temp_r){
         if(j._1==1.0){
+          result.append(i.getName+" ")
           println(i.getName)
         }
       }
-        }
- 	} 	 
+    }
+   
+		val predictedTags = result.toString().split(" ")
+		val data = sc.textFile("/home/neel/726/project/pic.txt").map { x => 	  
+		    val tokens = x.split(",") 
+		     Row(tokens(0),tokens(1),tokens(2))
+		 }
+		
+		//data.foreach { println }
+		val userTagRelationString = "UserId TagId Score"
+		val userTagRelationSchema = StructType(userTagRelationString.split(" ").map(fieldName => StructField(fieldName, StringType, true)))
+	
+		//val userTagRelationDF = sqlContext.createDataFrame(data, userTagRelationSchema)
+		//userTagRelationDF.foreach {println}
+		
+	 val userTagRelationDF = sqlContext.createDataFrame(data, userTagRelationSchema).registerTempTable("userTagRelationTable")		  
+	 
+	 val re = sqlContext.sql("select TUserId, max(Score) as score from userTagRelationTable where TagId='classification' group by TagId,UserId,Score having max(score)")
+	 re.foreach { println }
+	 println(result.toString())	
+ 	}
 }

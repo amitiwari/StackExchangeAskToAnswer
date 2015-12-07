@@ -18,8 +18,11 @@ import scala.io.Source._
 import org.apache.spark.ml.feature.HashingTF
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.linalg.Vector
-object LogisticRgressionLBFGS {
-	def main(args:Array[String]) = {
+import org.apache.spark.rdd
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+object PredictOne {
+  
+ 	def main(args:Array[String]) = {
 		Logger.getLogger("org").setLevel(Level.OFF)
 		Logger.getLogger("akka").setLevel(Level.OFF)
 		val conf = new SparkConf().setAppName("Train LG").setMaster("local");
@@ -67,49 +70,72 @@ object LogisticRgressionLBFGS {
                                     "postsDf as q,postsDf as a where a.PostTypeId=2 AND a.ParentId=q.Id")
                                     
     val tranningRDD = questionsRDD.unionAll(answersRDD);
-
-		for(i <- taglist){
-			        val targetTag = i
-		          val myudf: (String => Double) = (str: String) => {if (str.contains(targetTag)) 1.0 else 0.0}
-		        	val sqlfunc = udf(myudf)
-							val postsLabeled = tranningRDD.withColumn("Label", sqlfunc(col("Tags")))
-													
-							val postLabeledVectorized = new VectorWrapper().vectorize(postsLabeled, "Text", stopwordList)
-							
-							val  traning = postLabeledVectorized.rdd.map { 
+      
+		
+	
+		val targetTag = "machine-learning"
+		val myudf: (String => Double) = (str: String) => {if (str.contains(targetTag)) 1.0 else 0.0}
+		val sqlfunc = udf(myudf)
+		val postsLabeled = tranningRDD.withColumn("Label", sqlfunc(col("Tags")))
+		
+		//------------------------------------------split the data in Training and testing set here ------------
+		
+	
+		//Random generate seed
+		var r = new scala.util.Random 
+		val seed =  r.nextLong()
+		val splits__ = postsLabeled.randomSplit(Array(0.7, 0.3), seed = seed)
+   
+		val training__ = splits__(0)
+		val totalTaginTrainset = training__.rdd.filter(line=>line.toString().contains(targetTag)).count()
+   
+		val test__ = splits__(1)
+		val totalTaginTestset = test__.rdd.filter(line=>line.toString().contains(targetTag)).count()
+		
+		//--------------------------Generate Vectors --------------------------------------------------------------
+		
+    val training__vector =  new VectorWrapper().vectorize(training__, "Text", stopwordList)
+    val  training__vector_labledPoint = training__vector.rdd.map { 
 						        row => LabeledPoint(row.getDouble(5), row(8).asInstanceOf[org.apache.spark.mllib.linalg.Vector])
-					    }.cache()
-					    val model = new LogisticRegressionWithLBFGS().setNumClasses(2).run(traning)
-							//  Compute raw scores on the test set.
-							model.save(sc, "/home/neel/lrmodels/" + i)
-		}
-		println("trained on" + tranningRDD.count())
+		 }
+		
+		
+		val test__vector =  new VectorWrapper().vectorize(test__, "Text", stopwordList)
+    val  test_vector_labledPoint = test__vector.rdd.map { 
+						        row => LabeledPoint(row.getDouble(5), row(8).asInstanceOf[org.apache.spark.mllib.linalg.Vector])
+		 }
+		
+		//-------------------------------------Train and Predict--------------------- -----------------
+		
+		val model = new LogisticRegressionWithLBFGS().setNumClasses(2).run(training__vector_labledPoint).setThreshold(0.50)
+		
+		val predictionAndLabels = test_vector_labledPoint.map { case LabeledPoint(label, features) =>
+        val prediction = model.predict(features)
+        (prediction, label)
+      }
+		
+		//---------------------------Statistics----------------------------------------
+    val metrics = new MulticlassMetrics(predictionAndLabels)
+    val precision = metrics.precision
+      
+      println("Precision = " + precision)
+      println("Recall = " +metrics.recall)
+      val ct = metrics.confusionMatrix
+      println(ct)
+      
+      var num = ct.apply(0, 0)+ct.apply(1, 1)
+      var deno = ct.apply(0, 1)+ct.apply(1, 0)+ct.apply(0, 0)+ct.apply(1, 1)
+      
+      println("Accuracy " + num/deno)
+      
+		  val binarymetrics = new BinaryClassificationMetrics(predictionAndLabels)
+
+      val bct = binarymetrics.areaUnderROC()
+      println("Area under ROC " +bct)
+      
+			println("Total tags in testing " + totalTaginTestset)
+		  println("Total tags in traning " + totalTaginTrainset)
+		
 	}
-}
-class VectorWrapper {
-  val tokenFiled : String = "tokens-column"
-  val stopwordremoved :String = "stop-word-removed-col"
-  val vectorfiled : String = "vector-field"
-  val numFeatures:Int =50000
-  
-  def vectorize(inputDataframe : DataFrame,inputCol : String,stopwordList : Array[String]): DataFrame={
-    val tokenized = tokenize(inputDataframe,inputCol)
-    val stopWordRemoved = removeStopWords(tokenized,stopwordList)
-    val vectorizeDf = createVector(stopWordRemoved)
-    (vectorizeDf)    
-  }
-  def tokenize(inputDataframe : DataFrame, inputCol : String) : DataFrame ={
-		val tokenizer = new Tokenizer().setInputCol(inputCol).setOutputCol(tokenFiled)
-				val tokenized = tokenizer.transform(inputDataframe)
-				(tokenized)
-	}
-	def removeStopWords(inputDataframe : DataFrame,stopwordList : Array[String]) : DataFrame ={
-		val remover = new StopWordsRemover().setInputCol(tokenFiled).setOutputCol(stopwordremoved).setStopWords(stopwordList)
-				val cleanedText = remover.transform(inputDataframe)
-				(cleanedText)
-	}
-	def createVector(inputDataframe : DataFrame) : DataFrame ={
-		val hashingTF = new  HashingTF().setNumFeatures(numFeatures). setInputCol(stopwordremoved).setOutputCol(vectorfiled)
-				(hashingTF.transform(inputDataframe))     
-	}
+
 }
